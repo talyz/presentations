@@ -1,0 +1,580 @@
+#+TITLE:     NixOps
+#+AUTHOR:    Kim Lindberger
+#+EMAIL:     kim.lindberger@gmail.com
+#+DESCRIPTION:
+#+KEYWORDS:
+#+DATE:      February 22, 2020
+#+LANGUAGE:  en
+#+LaTeX_CLASS_OPTIONS: [aspectratio=169]
+#+LATEX_HEADER: \usepackage[many]{tcolorbox}
+#+BEAMER_THEME: Pittsburgh
+#+BEAMER_COLOR_THEME: default
+#+OPTIONS:   H:1 num:t toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+OPTIONS:   TeX:t LaTeX:t skip:nil d:nil todo:t pri:nil tags:not-in-toc
+#+INFOJS_OPT: view:nil toc:nil ltoc:t mouse:underline buttons:0 path:https://orgmode.org/org-info.js
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport
+\definecolor{bg}{rgb}{0.95,0.95,0.95}
+\definecolor{hl}{rgb}{0.85,0.85,0.95}
+\definecolor{frame}{rgb}{0.70,0.85,0.95}
+
+* Who am I?
+
+*** Kim Lindberger (talyz)
+
+    - From Stockholm
+    - Board member of the hackerspace Ix
+    - NixOS user and contributor since ~2017
+    - "IT specialist" at XLN Audio AB
+
+* Agenda
+
+*** What does NixOps do?
+
+*** How does NixOps work?
+
+*** Why choose NixOps?
+
+*** The future
+
+* What does NixOps do?
+  #+ATTR_BEAMER: :overlay <+->
+  - Deploys NixOS system configurations to remote machines
+    - Deployments are declarative and entirely written in Nix
+
+  - Deploys to existing machines
+      
+  - Provisions new machines
+    - VirtualBox VMs
+    - AWS EC2 instances
+    - GCE instances
+    - etc
+
+  - Provisions non-machine resources
+    - SSH keys
+    - Subnets
+    - S3 buckets
+    - DNS records
+    - etc
+        
+  - Handles multiple networks / clouds in the same deployment
+    - Can set up encrypted tunnels between hosts
+
+* How does NixOps work?
+
+*** What is a deployment? :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+>
+    :END:
+    A deployment is the unit most operations in NixOps act on by
+    default. It contains servers and resources that should be
+    deployed together: everything put into one deployment
+    specification.\\
+
+    Let's take a look at how such a specification is built...
+  
+*** Simple web server, NixOS :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    Say we have the following NixOS configuration, which starts
+    nginx to host the NixOS manual, and we want to deploy it to a
+    node using NixOps:
+
+***** webserver.nix :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize
+      #+begin_src nix :tangle yes
+      { config, pkgs, ... }:
+      {
+        services.nginx.enable = true;
+        services.nginx.virtualHosts."example" = {
+          locations."/" = {
+            root = "${config.system.build.manual.manualHTML}/share/doc/nixos/";
+          };
+        };
+      };
+      #+end_src
+
+*** Simple web server, NixOps, part 1 :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    We need to come up with a name for the node, then we can simply
+    assign the configuration to that name:
+
+***** webserver.nix :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightlines={1-2, 12},highlightcolor=frame
+      #+begin_src nix :tangle yes
+      {
+        webserver =
+          { config, pkgs ... }:
+          {
+            services.nginx.enable = true;
+            services.nginx.virtualHosts."example" = {
+              locations."/" = {
+                root = "${config.system.build.manual.manualHTML}/share/doc/nixos/";
+              };
+            };
+          };
+      }
+      #+end_src
+
+*** Simple web server, NixOps, part 2 :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    We need to specify where to deploy the configuration too: if we
+    want to deploy to a machine in our local network we can specify
+    it by setting src_nix[:exports code]{deployment.targetHost}:
+
+***** webserver.nix :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightlines={5},highlightcolor=frame
+      #+begin_src nix :tangle yes
+      {
+        webserver =
+          { config, pkgs ... }:
+          {
+            deployment.targetHost = "1.2.3.4";
+
+            services.nginx.enable = true;
+            services.nginx.virtualHosts."example" = {
+              locations."/" = {
+                root = "${config.system.build.manual.manualHTML}/share/doc/nixos/";
+              };
+            };
+          };
+      }
+      #+end_src
+
+*** Simple web server, NixOps, part 3 :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+
+    To test this configuration out before deploying it remotely, we
+    can set src_nix[:exports code]{deployment.targetEnv} to
+    src_nix[:exports code]{virtualbox}:
+
+***** webserver.nix :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightlines={5-7},highlightcolor=frame
+      #+begin_src nix :tangle yes
+      {
+        webserver =
+          { config, pkgs ... }:
+          {
+            deployment.targetEnv = "virtualbox";
+            deployment.virtualbox.memorySize = 128;
+            deployment.virtualbox.vcpu = 1;
+            services.nginx.enable = true;
+            services.nginx.virtualHosts."example" = {
+              locations."/" = {
+                root = "${config.system.build.manual.manualHTML}/share/doc/nixos/";
+              };
+            };
+          };
+      }
+      #+end_src
+
+*** Creating a deployment :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+-+(1)>
+    :END:
+    To use this configuration we need to tell NixOps about it by 
+    creating a deployment. To do this we run
+
+    #+attr_latex: :options fontsize=\footnotesize,bgcolor=bg
+    #+begin_src sh :tangle yes
+    nixops create -d <deployment name> <deployment file(s)>
+    #+end_src
+
+    which will create the deployment, but not actually deploy
+    anything. This only has to be done once - NixOps will pick up any
+    changes made to the files automatically, since it now knows which
+    they are.\\
+
+    #+BEAMER: \uncover<+>{Demo!}
+
+*** Deploying :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+>
+    :END:
+    To actually deploy our configuration we run
+
+    #+attr_latex: :options fontsize=\footnotesize,bgcolor=bg
+    #+begin_src sh :tangle yes
+    nixops deploy -d <deployment name>
+    #+end_src
+
+    Every time we make a change to our configuration, we need to run
+    this command for it to take effect.
+
+*** Deploying :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+-+(6)>
+    :END:
+    During deployment, NixOps performs several tasks:
+    #+ATTR_BEAMER: :overlay <+->
+      1. Check state to see whether all declared resources are provisioned
+      2. If resources are missing, they're provisioned
+         - In the case of a machine, it's instantiated and SSH access is awaited
+      3. The configuration is built and its closure is copied to the server
+      4. The configuration is activated on the server\\
+    #+BEAMER: \vspace{\baselineskip}
+    #+BEAMER: \uncover<+>{Demo!}
+
+*** Split deployments :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+>
+    :END:
+    To write the physical specification in the same place as the NixOS
+    configuration, the logical specification, can get quite messy and
+    hard to maintain for anything slightly more complex than our
+    previous example.
+    
+    #+BEAMER: \vspace{\the\dimexpr\baselineskip/2}
+
+    Luckily, we're not limited to only one specification file - we can
+    use however many we want. NixOps will read all of them and merge
+    the definitions into one.
+
+*** Split deployments example, logical :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    The previous example could therefore be split into two files - the
+    logical specification:
+
+***** webserver_logical.nix :B_tcolorbox:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}, coltitle=bg!30!black, fonttitle=\ttfamily\footnotesize, title code={\path[draw=frame,dashed,fill=bg](title.south west)--(title.south east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightcolor=hl
+      #+begin_src nix :tangle yes
+      {
+        webserver =
+          { config, pkgs, ... }:
+          {
+            services.nginx.enable = true;
+            services.nginx.virtualHosts."example" = {
+              locations."/" = {
+                root = "${config.system.build.manual.manualHTML}/share/doc/nixos/";
+              };
+            };
+          };
+      }
+      #+end_src
+
+*** Split deployments example, physical :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    ...and the physical specification:
+    
+***** webserver_physical_testing.nix :B_tcolorbox:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}, coltitle=bg!30!black, fonttitle=\ttfamily\footnotesize, title code={\path[draw=frame,dashed,fill=bg](title.south west)--(title.south east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightcolor=hl
+      #+begin_src nix :tangle yes
+      {
+        webserver =
+          { resources, ... }:
+          {
+            deployment.targetEnv = "virtualbox";
+            deployment.virtualbox.memorySize = 128;
+            deployment.virtualbox.vcpu = 1;
+          };
+      }
+      #+end_src
+
+*** Split deployments, testing and production :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    This means that we can reuse the same logical specification in
+    multiple deployments:
+
+    #+attr_latex: :options fontsize=\footnotesize,bgcolor=bg
+    #+begin_src console :tangle yes
+    $ nixops create -d production webserver_logical.nix webserver_physical.nix
+    $ nixops create -d testing webserver_logical.nix webserver_physical_testing.nix
+    #+end_src
+
+
+*** Specification reuse :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    We can also easily reuse any host specification within a
+    deployment, since it's all written in nix:
+    
+***** webserver_logical.nix :B_tcolorbox:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}, coltitle=bg!30!black, fonttitle=\ttfamily\footnotesize, title code={\path[draw=frame,dashed,fill=bg](title.south west)--(title.south east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightcolor=hl
+      #+begin_src nix :tangle yes
+      let
+        webserver =
+          { config, pkgs, ... }:
+          {
+            services.nginx.enable = true;
+            ...
+          };
+      in
+      {
+        webserver1 = webserver;
+        webserver2 = webserver;
+      }
+      #+end_src
+  
+*** Communication between hosts :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+>
+    :END:
+    Hosts in a deployment can refer to each other by name, since
+    NixOps updates the src_sh[:exports code]{/etc/hosts} file for
+    us. If, for example, we want to put haproxy in front of out
+    webservers, the config could look like this:
+
+***** :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize
+      #+begin_src kconfig :tangle yes
+      backend site
+        server server1 webserver1:80 check send-proxy
+        server server2 webserver2:80 check send-proxy
+      #+end_src
+
+*** Communication between hosts :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    We can also set src_nix[:exports code]{deployment.encryptedLinksTo}
+    and NixOps will set up encrypted tunnels to the specified hosts:
+
+***** webserver_logical.nix :B_tcolorbox:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}, coltitle=bg!30!black, fonttitle=\ttfamily\footnotesize, title code={\path[draw=frame,dashed,fill=bg](title.south west)--(title.south east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize,highlightcolor=hl
+      #+begin_src nix :tangle yes
+      deployment.encryptedLinksTo = [ "webserver1" "webserver2" ];
+
+      services.haproxy.enable = true;
+      services.haproxy.config = ''
+        ...
+        backend site
+          server server1 webserver1-encrypted:80 check send-proxy
+          server server2 webserver2-encrypted:80 check send-proxy
+      '';
+      #+end_src
+    
+
+*** Handling secrets :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+>
+    :END:
+    Specifying secrets as regular string arguments in NixOS is not a
+    good idea, since they will be put into the nix store and be world
+    readable.
+
+***** Bad secret example :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize
+      #+begin_src nix :tangle yes
+      services.gitlab.databasePassword = "32eRAjZnfy"; # Anyone can read this
+      #+end_src
+
+*** Handling secrets :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <.>
+    :END:
+    Instead, we often use paths to files outside the store which
+    contain the secrets:
+
+***** Good secret example :B_tcolorbox_no_title:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox_no_title
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, left=0mm, right=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize
+      #+begin_src nix :tangle yes
+      services.gitlab.databasePasswordFile = "/var/lib/gitlab_db_pw";
+      #+end_src
+
+*** Handling secrets :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <.>
+    :END:
+    How can we use such files on machines deployed by NixOps?
+
+*** Handling secrets :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:
+    Each NixOps deployment can define a special attrset,
+    src_nix[:exports code]{deployment.keys}, where each attribute
+    corresponds to a file which will be placed outside the store on
+    the target host:
+    
+***** webserver_logical.nix :B_tcolorbox:
+      :PROPERTIES:
+      :BEAMER_env: tcolorbox
+      :BEAMER_opt: before={\vspace{\the\dimexpr\baselineskip/2}}, top=0mm, bottom=0mm, sharp corners, enhanced, frame code={\path[draw=frame,fill=bg](frame.south west) rectangle (frame.north east);}, coltitle=bg!30!black, fonttitle=\ttfamily\footnotesize, title code={\path[draw=frame,dashed,fill=bg](title.south west)--(title.south east);}
+      :END:
+      #+attr_latex: :options fontsize=\footnotesize
+      #+begin_src nix :tangle yes
+      ...
+      services.nginx.virtualHosts."example" = {
+        forceSSL = true;
+        sslCertificate = config.deployment.keys.ssl_cert.path
+        sslCertificateKey = config.deployment.keys.ssl_cert.path
+        ...
+      };
+      users.users.nginx.extraGroups = [ "keys" ];
+      deployment.keys.ssl_cert = {
+        keyFile = ./secrets/ssl_cert_key_bundle;
+        permissions = "0600";
+      };
+      ...
+      #+end_src
+      
+*** Advanced example :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+-+(4)>
+    :END:
+    With all of this in mind, it's time for a more advanced
+    example. In the following demo, we'll set up a deployment with two
+    webservers and a load balancer:
+
+    #+ATTR_BEAMER: :overlay <+->
+    - The webservers use the same logical and physical specification
+    - The load balancer uses the same physical specification as the webservers
+    - The load balancer communicates with the webservers through encrypted tunnels
+    - It's all deployed to a new VPC on AWS
+
+*** Other interesting commands :B_onlyenv_block:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv_block
+    :BEAMER_act: <+-+(5)>
+    :END:
+    #+ATTR_BEAMER: :overlay <+->
+    - src_sh[:exports code]{nixops ssh -d <deployment> <host>}
+    - src_sh[:exports code]{nixops destroy -d <deployment>}
+    - src_sh[:exports code]{nixops start -d <deployment>}
+    - src_sh[:exports code]{nixops stop -d <deployment>}
+    - src_sh[:exports code]{nixops <operation> -d <deployment> --include <host>}
+
+* Why choose NixOps?
+
+*** NixOps :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+-+(4)>
+    :END:
+    Because of NixOS! :)
+
+    #+ATTR_BEAMER: :overlay <+->
+    - All configurations are built locally before being shipped off to
+      servers and applied
+    - If there's an error building any configuration, the whole
+      operation is aborted
+    - When a configuration is activated, this is an (almost) atomic
+      operation that can be rolled back
+      - Configuration files aren't updated in-place
+
+*** Other systems :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+-+(5)>
+    :END:
+    Contrast this with imperative deployment systems, such as Ansible:
+
+    #+ATTR_BEAMER: :overlay <+->
+    - They make in-place updates to configuration files
+    - Idempotence often has to be manually implemented in recipes
+    - When the system is updated, configuration files may or may not
+      be updated depending on current state
+      - Pacman won't update changed config files
+    - If an error occurs during deployment, we're often left with a
+      half-updated system
+
+*** Provisioning :B_onlyenv:
+    :PROPERTIES:
+    :BEAMER_env: onlyenv
+    :BEAMER_act: <+>
+    :END:    
+    Because it also does provisioning!
+
+* The future of NixOps
+  #+ATTR_BEAMER: :overlay <+->
+  - There are ongoing efforts to port NixOps to Python 3
+    - Currently written in Python 2
+  - The backends (AWS, GCE, etc) will be split into separate plugins
+    in an upcoming release
+
+* Summary
+  #+ATTR_BEAMER: :overlay <+->
+  - NixOps deploys NixOS system configurations to
+    - Existing machines
+    - Newly provisioned machines
+  - NixOps can provision both machines and non-machine resources
+  - NixOps owes many of it's selling points to NixOS
+
+* Questions?
+** Contact
+ - IRC: talyz
+ - GitHub: talyz
+ - Mastodon: talyz@chaos.social
+ - Email: kim.lindberger@gmail.com
+* COMMENT Local Variables
+# local variables:
+# eval: (load-file "../org-config.el")
+# end:

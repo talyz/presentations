@@ -1,0 +1,7 @@
+* Presentations
+  Building requires [[https://nixos.org/nix/][Nix]]. To build a presentation, go into the
+  presentation folder and run
+
+  #+begin_src shell-session :tangle yes
+  $ nix-build
+  #+end_src

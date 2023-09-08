@@ -1,0 +1,64 @@
+.reveal p {
+    text-align: left;
+}
+.reveal ul {
+    display: inherit;
+}
+.reveal ol {
+    display: inherit;
+}
+.reveal pre code {
+    max-height: 100%;
+}
+section[hide=""] > h2 {
+    display: none;
+}
+section[hide=""] > h4 {
+    display: none;
+}
+.qrcode img {
+    margin: 0;
+    max-width: 100%;
+    max-height: 100%;
+}
+div.qrcode {
+    width: 300px;
+    height: 300px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 10px;
+    background: #FFFFFF;
+}
+div.contact-link {
+    display: flex;
+    padding: 1%;
+}
+p.contact-link-title {
+    text-align: center;
+    font-weight: bold;
+    width: 15%;
+}
+p.contact-link-link {
+    text-align: center;
+    width: 60%;
+}
+div.about {
+    display: flex;
+    padding: 1%;
+}
+.about div.figure {
+    width: 25%;
+}
+.about ul {
+    display: block;
+}
+.about img {
+    margin: 0;
+    max-width: 100%;
+    max-height: 100%;
+}
+.about p {
+    margin: 0;
+    max-width: 100%;
+    max-height: 100%;
+}

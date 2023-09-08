@@ -1,0 +1,648 @@
+#+TITLE: Impermanence
+#+AUTHOR: talyz
+#+DATE: 2023-09-09
+#+OPTIONS: timestamp:nil toc:nil num:nil
+#+REVEAL_INIT_OPTIONS: width: "75%", height: "100%", slideNumber:false
+#+REVEAL_PLUGINS: (highlight)
+#+REVEAL_THEME: blood
+#+REVEAL_EXTRA_CSS: ./local.css
+#+REVEAL_DEFAULT_FRAG_STYLE: appear
+
+* About me
+  :PROPERTIES:
+  :REVEAL_EXTRA_ATTR: hide
+  :END:
+
+  *Kim Lindberger* (*@talyz*)
+
+  #+REVEAL_HTML: <div class="about">
+  [[./cat.jpeg]]
+  #+ATTR_REVEAL: :frag (t)
+  - NixOS user since 2017
+  - Working for XLN Audio
+  - In nixpkgs, mostly worked on service modules
+    #+ATTR_REVEAL: :frag (t)
+    - Discourse
+    - GitLab
+    - Keycloak
+  #+REVEAL_HTML: </div>
+
+* Background
+  :PROPERTIES:
+  :REVEAL_EXTRA_ATTR: hide
+  :END:
+
+  NixOS can boot with very little in place.
+
+  #+ATTR_REVEAL: :frag (t)
+  - ~/boot~
+
+  - ~/nix~
+
+  #+ATTR_REVEAL: :frag (t)
+  That's pretty much it.
+
+  #+ATTR_REVEAL: :frag (t)
+  Everything outside of these mount points can be generated when you
+  boot for the first time.
+
+  #+ATTR_REVEAL: :frag (t)
+  Remove everything outside of them and you'll get a system with only
+  what you've declared in your NixOS config.
+
+  #+REVEAL: split
+
+  This is the foundation for an impermanence setup.
+
+  #+ATTR_REVEAL: :frag (t)
+  On every reboot, your root partition is completely wiped.
+
+  #+ATTR_REVEAL: :frag (t)
+  This could work fine for a kiosk machine or perhaps in a server
+  scenario where all state is external.
+
+  #+ATTR_REVEAL: :frag (t)
+  However, in most cases, you probably want to keep some state between
+  reboots.
+
+  #+ATTR_REVEAL: :frag (t)
+  To make this easy, we provide two persistence modules, one for NixOS
+  and one for home-manager.
+
+  #+ATTR_REVEAL: :frag (t)
+  They allow you to declare which files and directories you want to
+  keep.
+
+* Why?
+
+  #+ATTR_REVEAL: :frag (t)
+  - It forces you to declare settings you want to keep
+
+  - It keeps the accumulation of cruft to a minimum
+
+  - It lets you experiment with new software without fear of
+    cluttering up your system
+
+* How?
+
+  Now that I've convinced you, this is what you'll need to get going:
+
+  #+ATTR_REVEAL: :frag (t)
+  1. a root filesystem which gets auto-wiped on reboot, i.e. ephemeral
+     storage
+
+  2. a volume which persists between reboots, i.e. persistent storage
+
+  3. at least one of the persistence modules, which create links from
+     1 into 2
+
+* The auto-wiping root
+
+  There are many ways to wipe your root partition between boots, but
+  let's look at two popular ones.
+
+*** tmpfs
+
+    The easiest method is to use the a *tmpfs* filesystem for the
+    root.
+
+    #+ATTR_REVEAL: :frag (t)
+    With *tmpfs*, all data is stored in system memory.
+
+    #+ATTR_REVEAL: :frag (t)
+    Therefore, it's automatically cleaned up when the system is
+    rebooted.
+
+    #+ATTR_REVEAL: :frag (t)
+    This is the easiest way to set up impermanence on systems which
+    currently use a traditional filesystem (ext4, xfs, etc) as the
+    root filesystem, since you don't have to repartition.
+
+    #+ATTR_REVEAL: :frag (t)
+    However, it also comes with some pretty significant drawbacks:
+
+    #+ATTR_REVEAL: :frag (t)
+    - you can easily run into an out-of-memory or disk-full scenario
+
+    - if the system crashes or loses power, you can easily lose files
+      you wanted to keep
+
+    #+REVEAL: split
+
+    Using *tmpfs* as the root filesystem is as simple as:
+
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "none";
+          fsType = "tmpfs";
+          options = [ "defaults" "size=25%" "mode=755" ];
+        };
+
+        ...
+      }
+    #+end_src
+
+*** Btrfs subvolumes
+    :PROPERTIES:
+    :REVEAL_EXTRA_ATTR: data-auto-animate
+    :END:
+
+    A more advanced solution which doesn't have the same drawbacks is
+    to use a regular filesystem, but clean it up between boots.
+
+    #+ATTR_REVEAL: :frag (t)
+    A relatively easy way to do this is to use Btrfs and create a new
+    subvolume to use as root on boot.
+
+    #+ATTR_REVEAL: :frag (t)
+    This also allows you to keep a number of old roots around, in case
+    of crashes, power outages or other accidents.
+
+    #+ATTR_REVEAL: :frag (t)
+    Let's look at a setup which would automatically remove roots that
+    are older than 30 days.
+
+    #+REVEAL: split
+
+    First we need to declare the root filesystem. Here we say that we
+    want to use the ~root~ subvolume of our Btrfs filesystem as the
+    root.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "/dev/root_vg/root";
+          fsType = "btrfs";
+          options = [ "subvol=root" ];
+        };
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    To create a fresh subvolume and move the old one out of the way,
+    we need to run a small script. It needs to run when the device has
+    just become available, but before it's mounted.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "/dev/root_vg/root";
+          fsType = "btrfs";
+          options = [ "subvol=root" ];
+        };
+
+        boot.initrd.postDeviceCommands = lib.mkAfter ''
+        '';
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    In the script we first need to mount the actual Btrfs root, where
+    the subvolumes will be located.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "/dev/root_vg/root";
+          fsType = "btrfs";
+          options = [ "subvol=root" ];
+        };
+
+        boot.initrd.postDeviceCommands = lib.mkAfter ''
+          mkdir /btrfs_tmp
+          mount /dev/root_vg/root /btrfs_tmp
+        '';
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    Then we move the old subvolume to a subdirectory, timestamping it.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "/dev/root_vg/root";
+          fsType = "btrfs";
+          options = [ "subvol=root" ];
+        };
+
+        boot.initrd.postDeviceCommands = lib.mkAfter ''
+          mkdir /btrfs_tmp
+          mount /dev/root_vg/root /btrfs_tmp
+          if [[ -e /btrfs_tmp/root ]]; then
+              mkdir -p /btrfs_tmp/old_roots
+              timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/root)" "+%Y-%m-%-d_%H:%M:%S")
+              mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp"
+          fi
+        '';
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    Next, we need to clean up old subvolumes. We filter out all
+    subvolumes older than 30 days and delete them. Since btrfs-progs
+    lacks a recursive subvolume delete, we need to implement it.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "/dev/root_vg/root";
+          fsType = "btrfs";
+          options = [ "subvol=root" ];
+        };
+
+        boot.initrd.postDeviceCommands = lib.mkAfter ''
+          mkdir /btrfs_tmp
+          mount /dev/root_vg/root /btrfs_tmp
+          if [[ -e /btrfs_tmp/root ]]; then
+              mkdir -p /btrfs_tmp/old_roots
+              timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/root)" "+%Y-%m-%-d_%H:%M:%S")
+              mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp"
+          fi
+
+          delete_subvolume_recursively() {
+              IFS=$'\n'
+              for i in $(btrfs subvolume list -o "$1" | cut -f 9- -d ' '); do
+                  delete_subvolume_recursively "/btrfs_tmp/$i"
+              done
+              btrfs subvolume delete "$1"
+          }
+
+          for i in $(find /btrfs_tmp/old_roots/ -maxdepth 1 -mtime +30); do
+              delete_subvolume_recursively "$i"
+          done
+        '';
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    Lastly, we create the new root subvolume and unmount the
+    filesystem.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        fileSystems."/" = {
+          device = "/dev/root_vg/root";
+          fsType = "btrfs";
+          options = [ "subvol=root" ];
+        };
+
+        boot.initrd.postDeviceCommands = lib.mkAfter ''
+          mkdir /btrfs_tmp
+          mount /dev/root_vg/root /btrfs_tmp
+          if [[ -e /btrfs_tmp/root ]]; then
+              mkdir -p /btrfs_tmp/old_roots
+              timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/root)" "+%Y-%m-%-d_%H:%M:%S")
+              mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp"
+          fi
+
+          delete_subvolume_recursively() {
+              IFS=$'\n'
+              for i in $(btrfs subvolume list -o "$1" | cut -f 9- -d ' '); do
+                  delete_subvolume_recursively "/btrfs_tmp/$i"
+              done
+              btrfs subvolume delete "$1"
+          }
+
+          for i in $(find /btrfs_tmp/old_roots/ -maxdepth 1 -mtime +30); do
+              delete_subvolume_recursively "$i"
+          done
+
+          btrfs subvolume create /btrfs_tmp/root
+          umount /btrfs_tmp
+        '';
+      }
+    #+end_src
+
+* The persistent volume
+
+  Finishing off the file system setup, we need at least one persistent
+  volume to store the state we want to keep.
+
+  #+begin_src nix
+    {
+      fileSystems."/persistent" = {
+        device = "/dev/root_vg/root";
+        neededForBoot = true;
+        fsType = "btrfs";
+        options = [ "subvol=persistent" ];
+      };
+
+      fileSystems."/nix" = {
+        device = "/dev/root_vg/root";
+        fsType = "btrfs";
+        options = [ "subvol=nix" ];
+      };
+
+      fileSystems."/boot" = {
+        device = "/dev/disk/by-uuid/XXXX-XXXX";
+        fsType = "vfat";
+      };
+    }
+  #+end_src
+
+
+* The persistence modules
+
+  Now we have both ephemeral and persistent storage set up, but we
+  need some way to make the files we want to store in the persistent
+  storage appear in the ephemeral storage.
+
+  #+ATTR_REVEAL: :frag (t)
+  This is what the persistence modules help us with.
+
+  #+ATTR_REVEAL: :frag (t)
+  They provide an interface to declare which files and directories you
+  want to persist. For those files and directories they set up bind
+  mounts or links at runtime.
+
+*** NixOS
+    :PROPERTIES:
+    :REVEAL_EXTRA_ATTR: data-auto-animate
+    :END:
+
+    To use the module, import it into your configuration with
+
+    #+begin_src nix
+      {
+        imports = [ /path/to/impermanence/nixos.nix ];
+      }
+    #+end_src
+
+    or use the provided ~nixosModules.impermanence~ flake output.
+
+    #+ATTR_REVEAL: :frag (t)
+    This adds the ~environment.persistence~ option. To understand it,
+    let's look at an example.
+
+    #+REVEAL: split
+
+    ~environment.persistence~ is an attribute set of submodules, each
+    corresponding to a path to persistent storage. Under this path is
+    where your files and directories will be stored.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence."/persistent" = {
+        };
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    It's common to only have one, but it can be useful to have
+    more. If you want to take backups of only some files, for example.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence."/persistent/main" = {
+        };
+        environment.persistence."/persistent/backup" = {
+        };
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    You can also give them friendlier names and declare the persistent
+    storage paths through the ~persistentStoragePath~ option.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence.main = {
+          persistentStoragePath = "/persistent/main";
+        };
+        environment.persistence.backup = {
+          persistentStoragePath = "/persistent/backup";
+        };
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    But for simplicity's sake, let's just look at one path.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence.main = {
+          persistentStoragePath = "/persistent";
+        };
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    The directories you want to keep should be declared with the
+    ~directories~ option.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence.main = {
+          persistentStoragePath = "/persistent";
+          directories = [
+            "/var/log"
+            "/var/lib/bluetooth"
+            "/var/lib/nixos"
+          ];
+        };
+      }
+    #+end_src
+
+    The paths are relative to the root. In the example, the path to
+    the real ~/var/log~ directory will be ~/persistent/var/log~.
+
+    #+REVEAL: split
+
+    Files are listed separately, but work the same way.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence.main = {
+          persistentStoragePath = "/persistent";
+          directories = [
+            "/var/log"
+            "/var/lib/bluetooth"
+            "/var/lib/nixos"
+          ];
+          files = [
+            "/etc/machine-id"
+          ];
+        };
+      }
+    #+end_src
+
+    #+REVEAL: split
+
+    If either the target or the source directory doesn't exist, it
+    will be created.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence.main = {
+          persistentStoragePath = "/persistent";
+          directories = [
+            "/var/log"
+            "/var/lib/bluetooth"
+            "/var/lib/nixos"
+            { directory = "/var/lib/colord"; user = "colord"; group = "colord"; }
+          ];
+          files = [
+            "/etc/machine-id"
+            { file = "/var/keys/secret_file"; parentDirectory = { mode = "u=rwx,g=,o="; }; }
+          ];
+        };
+      }
+    #+end_src
+
+    If needed, you can declare the permissions and ownership the
+    directory should be created with if it doesn't already exist.
+
+    For files, you can declare their parent directory permissions.
+
+    #+REVEAL: split
+
+    For files and directories in a user's home directory, there's a
+    separate option: ~users.<username>~.
+
+    The suboptions ~directories~ and ~files~ work the same way as the main
+    ones, but paths are relative to the user's home directory and
+    default permissions and ownership is adjusted to match the user.
+
+    #+ATTR_REVEAL: :data_id code
+    #+ATTR_REVEAL: :code_attribs data-line-numbers
+    #+begin_src nix
+      {
+        environment.persistence.main = {
+          persistentStoragePath = "/persistent";
+          directories = [
+            "/var/log"
+            "/var/lib/bluetooth"
+            "/var/lib/nixos"
+            { directory = "/var/lib/colord"; user = "colord"; group = "colord"; }
+          ];
+          files = [
+            "/etc/machine-id"
+            { file = "/var/keys/secret_file"; parentDirectory = { mode = "u=rwx,g=,o="; }; }
+          ];
+          users.talyz = {
+            directories = [
+              "Downloads"
+              "Documents"
+              { directory = ".gnupg"; mode = "0700"; }
+              ".local/share/direnv"
+            ];
+            files = [
+              ".screenrc"
+            ];
+          };
+        };
+      }
+    #+end_src
+
+*** home-manager
+
+    As an alternative to using the
+    ~environment.persistence.<path>.users.<username>~ option, there's
+    also a ~home-manager~ module.
+
+    #+ATTR_REVEAL: :frag (t)
+
+    #+REVEAL: split
+
+    The usage is almost identical to the NixOS module, so I won't
+    go into much more detail, but here's a simple example.
+
+    #+begin_src nix
+      {
+        home.persistence."/persistent/home/talyz" = {
+          directories = [
+            "Downloads"
+            "Pictures"
+            "Documents"
+            ".gnupg"
+            ".ssh"
+            ".local/share/keyrings"
+          ];
+          files = [
+            ".screenrc"
+          ];
+          allowOther = true;
+        };
+      }
+    #+end_src
+
+*** Technical details
+    :PROPERTIES:
+    :REVEAL_EXTRA_ATTR: hide
+    :END:
+
+    For each declared item, the modules do the following:
+
+    #+ATTR_REVEAL: :frag (t)
+    - Create missing directories and parent directories in persistent
+      storage
+
+    - Clone the parent directory structure with permissions and
+      ownership from persistent storage to ephemeral storage
+
+    - Bind mount the item into ephemeral storage
+
+    - For non-existent files, symlinks are set up instead of bind
+      mounts
+      #+ATTR_REVEAL: :frag (t)
+      - Bind mounts are almost always preferable to symlinks when
+        available, except they can't point to non-existent files.
+
+    #+REVEAL: split
+
+    The modules aim to always provide the best non-destructive
+    behavior and to require as little configuration as possible.
+
+* Contact & Links
+  :PROPERTIES:
+  :REVEAL_EXTRA_ATTR: hide
+  :END:
+
+  #+REVEAL_HTML: <div class="contact-link">
+  #+REVEAL_HTML: <p class="contact-link-title">GitHub</p>
+  #+REVEAL_HTML: <p class="contact-link-link">https://github.com/nix-community/impermanence</p>
+  #+REVEAL_HTML: <div id="https://github.com/nix-community/impermanence" class="qrcode"></div>
+  #+REVEAL_HTML: </div>
+  #+REVEAL_HTML: <div class="contact-link">
+  #+REVEAL_HTML: <p class="contact-link-title">Matrix</p>
+  #+REVEAL_HTML: <p class="contact-link-link">https://matrix.to/#/#impermanence:nixos.org</p>
+  #+REVEAL_HTML: <div id="https://matrix.to/#/#impermanence:nixos.org" class="qrcode"></div>
+  #+REVEAL_HTML: </div>
+  nix build github:talyz/presentations#impermanence-nixcon-2023
